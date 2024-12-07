@@ -109,7 +109,8 @@ static void quatMultiply(const vqf_real_t q1[4], const vqf_real_t q2[4], vqf_rea
     out[0] = w; out[1] = x; out[2] = y; out[3] = z;
 }
 
-// thio func can be replaced by arm_quaternion_conjugate_f32 from CMSIS-DSP
+/*
+// this func can be replaced by arm_quaternion_conjugate_f32 from CMSIS-DSP
 static void quatConj(const vqf_real_t q[4], vqf_real_t out[4])
 {
     vqf_real_t w = q[0];
@@ -118,7 +119,7 @@ static void quatConj(const vqf_real_t q[4], vqf_real_t out[4])
     vqf_real_t z = -q[3];
     out[0] = w; out[1] = x; out[2] = y; out[3] = z;
 }
-
+*/
 
 static void quatSetToIdentity(vqf_real_t out[4])
 {
