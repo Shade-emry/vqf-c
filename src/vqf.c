@@ -9,7 +9,7 @@
 
 #define EPS FLT_EPSILON
 #define NaN NAN
-#define M_SQRT2     1.41421356237309504880   // sqrt(2)s
+#define M_SQRT2     1.41421356237309504880f   // sqrt(2)s
 #define M_PIf       3.14159265358979323846f
 
 void init_params(vqf_params_t *const params)
@@ -169,11 +169,11 @@ static void filterCoeffs(vqf_real_t tau, vqf_real_t Ts, vqf_double_t outB[3], vq
     // assert(tau > 0);
     // assert(Ts > 0);
     // second order Butterworth filter based on https://stackoverflow.com/a/52764064
-    vqf_double_t fc = (M_SQRT2 / (2.0*M_PIf))/(vqf_double_t)(tau); // time constant of dampened, non-oscillating part of step response
+    vqf_double_t fc = (M_SQRT2 / (2.0f*M_PIf))/(vqf_double_t)(tau); // time constant of dampened, non-oscillating part of step response
     // tan_fast can be replaced by sin/cos from CMSIS_DSP lib
     vqf_double_t C = tanf(M_PIf*fc*(vqf_double_t)(Ts));
     // sqrt can be replaced by arm_sqrt_f32 from CMSIS_DSP
-    vqf_double_t D = C*C + sqrt(2)*C + 1;
+    vqf_double_t D = C*C + sqrtf(2)*C + 1;
     vqf_double_t b0 = C*C/D;
     outB[0] = b0;
     outB[1] = 2*b0;
@@ -181,7 +181,7 @@ static void filterCoeffs(vqf_real_t tau, vqf_real_t Ts, vqf_double_t outB[3], vq
     // a0 = 1.0
     outA[0] = 2*(C*C-1)/D; // a1
     // sqrt can be replaced by arm_sqrt_f32 from CMSIS_DSP
-    outA[1] = (1-sqrt(2)*C+C*C)/D; // a2
+    outA[1] = (1-sqrtf(2)*C+C*C)/D; // a2
 }
 
 static void filterInitialState(vqf_real_t x0, const vqf_double_t b[], const vqf_double_t a[], vqf_double_t out[2])
@@ -359,11 +359,11 @@ void updateGyr(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
         state->restLastSquaredDeviations[0] = vqf_square(gyr[0] - state->restLastGyrLp[0])
                 + vqf_square(gyr[1] - state->restLastGyrLp[1]) + vqf_square(gyr[2] - state->restLastGyrLp[2]);
 
-        vqf_real_t biasClip = params->biasClip*(vqf_real_t)(M_PIf/180.0);
-        if (state->restLastSquaredDeviations[0] >= vqf_square(params->restThGyr*(vqf_real_t)(M_PIf/180.0))
+        vqf_real_t biasClip = params->biasClip*(vqf_real_t)(M_PIf/180.0f);
+        if (state->restLastSquaredDeviations[0] >= vqf_square(params->restThGyr*(vqf_real_t)(M_PIf/180.0f))
                 // fabs can be replaced by arm_abs_f32 from CMSIS-DSP
-                || fabs(state->restLastGyrLp[0]) > biasClip || fabs(state->restLastGyrLp[1]) > biasClip
-                || fabs(state->restLastGyrLp[2]) > biasClip) {
+                || fabsf(state->restLastGyrLp[0]) > biasClip || fabsf(state->restLastGyrLp[1]) > biasClip
+                || fabsf(state->restLastGyrLp[2]) > biasClip) {
             state->restT = 0.0;
             state->restDetected = false;
         }
@@ -425,10 +425,10 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
     vqf_real_t accCorrQuat[4];
     // sqrt can be replaced by arm_sqrt_f32 from CMSIS_DSP
     vqf_real_t q_w = sqrt((accEarth[2]+1)/2);
-    if (q_w > 1e-6) {
+    if (q_w > 1e-6f) {
         accCorrQuat[0] = q_w;
-        accCorrQuat[1] = 0.5*accEarth[1]/q_w;
-        accCorrQuat[2] = -0.5*accEarth[0]/q_w;
+        accCorrQuat[1] = 0.5f*accEarth[1]/q_w;
+        accCorrQuat[2] = -0.5f*accEarth[0]/q_w;
         accCorrQuat[3] = 0;
     } else {
         // to avoid numeric issues when acc is close to [0 0 -1], i.e. the correction step is close (<= 0.00011°) to 180°:
@@ -442,11 +442,11 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
     // calculate correction angular rate to facilitate debugging
     // acos can be replaced by 2*arctan( sqrt(1-x*x) / x )
-    state->lastAccCorrAngularRate = acos(accEarth[2])/coeffs->accTs;
+    state->lastAccCorrAngularRate = acosf(accEarth[2])/coeffs->accTs;
 
     // bias estimation
     if (params->motionBiasEstEnabled || params->restBiasEstEnabled) {
-        vqf_real_t biasClip = params->biasClip*(vqf_real_t)(M_PIf/180.0);
+        vqf_real_t biasClip = params->biasClip*(vqf_real_t)(M_PIf/180.0f);
 
         vqf_real_t accGyrQuat[4];
         vqf_real_t R[9];
@@ -566,8 +566,8 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
         // magnetic disturbance detection
         // fabs can be replaced by arm_abs_f32 from CMSIS-DSP
-        if (fabs(state->magNormDip[0] - state->magRefNorm) < params->magNormTh*state->magRefNorm
-                && fabs(state->magNormDip[1] - state->magRefDip) < params->magDipTh*(vqf_real_t)(M_PIf/180.0)) {
+        if (fabsf(state->magNormDip[0] - state->magRefNorm) < params->magNormTh*state->magRefNorm
+                && fabsf(state->magNormDip[1] - state->magRefDip) < params->magDipTh*(vqf_real_t)(M_PIf/180.0f)) {
             state->magUndisturbedT += coeffs->magTs;
             if (state->magUndisturbedT >= params->magMinUndisturbedTime) {
                 state->magDistDetected = false;
@@ -581,16 +581,16 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
         // new magnetic field acceptance
         // fabs can be replaced by arm_abs_f32 from CMSIS-DSP
-        if (fabs(state->magNormDip[0] - state->magCandidateNorm) < params->magNormTh*state->magCandidateNorm
-                && fabs(state->magNormDip[1] - state->magCandidateDip) < params->magDipTh*(vqf_real_t)(M_PIf/180.0)) {
-            if (norm(state->restLastGyrLp, 3) >= params->magNewMinGyr*M_PIf/180.0) {
+        if (fabsf(state->magNormDip[0] - state->magCandidateNorm) < params->magNormTh*state->magCandidateNorm
+                && fabsf(state->magNormDip[1] - state->magCandidateDip) < params->magDipTh*(vqf_real_t)(M_PIf/180.0f)) {
+            if (norm(state->restLastGyrLp, 3) >= params->magNewMinGyr*M_PIf/180.0f) {
                 state->magCandidateT += coeffs->magTs;
             }
             state->magCandidateNorm += coeffs->kMagRef*(state->magNormDip[0] - state->magCandidateNorm);
             state->magCandidateDip += coeffs->kMagRef*(state->magNormDip[1] - state->magCandidateDip);
 
             if (state->magDistDetected && (state->magCandidateT >= params->magNewTime || (
-                    state->magRefNorm == 0.0 && state->magCandidateT >= params->magNewFirstTime))) {
+                    state->magRefNorm == 0.0f && state->magCandidateT >= params->magNewFirstTime))) {
                 state->magRefNorm = state->magCandidateNorm;
                 state->magRefDip = state->magCandidateDip;
                 state->magDistDetected = false;
@@ -604,7 +604,7 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
     }
 
     // calculate disagreement angle based on current magnetometer measurement
-    state->lastMagDisAngle = atan2(magEarth[0], magEarth[1]) - state->delta;
+    state->lastMagDisAngle = atan2f(magEarth[0], magEarth[1]) - state->delta;
 
     // make sure the disagreement angle is in the range [-pi, pi]
     if (state->lastMagDisAngle > (vqf_real_t)(M_PIf)) {
@@ -743,7 +743,7 @@ vqf_real_t getBiasEstimate(vqf_state_t *const state, vqf_coeffs_t *const coeffs,
     vqf_real_t P = vqf_min(vqf_max(vqf_max(sum1, sum2), sum3), coeffs->biasP0);
     // convert standard deviation from 0.01deg to rad
     // sqrt can be replaced by arm_sqrt_f32 from CMSIS_DSP
-    return sqrt(P)*(vqf_real_t)(M_PIf/100.0/180.0);
+    return sqrtf(P)*(vqf_real_t)(M_PIf/100.0f/180.0f);
 }
 
 void setBiasEstimate(vqf_state_t *const state, vqf_real_t bias[3], vqf_real_t sigma)
@@ -751,7 +751,7 @@ void setBiasEstimate(vqf_state_t *const state, vqf_real_t bias[3], vqf_real_t si
     memcpy(state->bias, bias, sizeof(bias[0])*3);
     // std::copy(bias, bias+3, state->bias);
     if (sigma > 0) {
-        vqf_real_t P = vqf_square(sigma*(vqf_real_t)(180.0*100.0/M_PIf));
+        vqf_real_t P = vqf_square(sigma*(vqf_real_t)(180.0f*100.0f/M_PIf));
         matrix3SetToScaledIdentity(P, state->biasP);
     }
 }
@@ -769,8 +769,8 @@ bool getMagDistDetected(vqf_state_t *const state)
 void getRelativeRestDeviations(vqf_params_t *const params, vqf_state_t *const state, vqf_real_t out[2])
 {
     // sqrt can be replaced by arm_sqrt_f32 from CMSIS_DSP
-    out[0] = sqrt(state->restLastSquaredDeviations[0]) / (params->restThGyr*(vqf_real_t)(M_PIf/180.0));
-    out[1] = sqrt(state->restLastSquaredDeviations[1]) / params->restThAcc;
+    out[0] = sqrtf(state->restLastSquaredDeviations[0]) / (params->restThGyr*(vqf_real_t)(M_PIf/180.0f));
+    out[1] = sqrtf(state->restLastSquaredDeviations[1]) / params->restThAcc;
 }
 
 vqf_real_t getMagRefNorm(vqf_state_t *const state)
@@ -952,17 +952,17 @@ void setup(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *c
 
     coeffs->kMag = gainFromTau(params->tauMag, coeffs->magTs);
 
-    coeffs->biasP0 = vqf_square(params->biasSigmaInit*100.0);
+    coeffs->biasP0 = vqf_square(params->biasSigmaInit*100.0f);
     // the system noise increases the variance from 0 to (0.1 °/s)^2 in biasForgettingTime seconds
     coeffs->biasV = vqf_square(0.1*100.0)*coeffs->accTs/params->biasForgettingTime;
 
 
-    vqf_real_t pMotion = vqf_square(params->biasSigmaMotion*100.0);
+    vqf_real_t pMotion = vqf_square(params->biasSigmaMotion*100.0f);
     coeffs->biasMotionW = vqf_square(pMotion) / coeffs->biasV + pMotion;
     coeffs->biasVerticalW = coeffs->biasMotionW / vqf_max(params->biasVerticalForgettingFactor, (vqf_real_t)(1e-10));
 
 
-    vqf_real_t pRest = vqf_square(params->biasSigmaRest*100.0);
+    vqf_real_t pRest = vqf_square(params->biasSigmaRest*100.0f);
     coeffs->biasRestW = vqf_square(pRest) / coeffs->biasV + pRest;
 
     filterCoeffs(params->restFilterTau, coeffs->gyrTs, coeffs->restGyrLpB, coeffs->restGyrLpA);
