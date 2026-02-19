@@ -12,7 +12,9 @@
 
 #define EPS FLT_EPSILON
 #define NaN NAN
-#define M_SQRT2     1.41421356237309504880f   // sqrt(2)s
+#ifndef M_SQRT2
+#define M_SQRT2     1.41421356237309504880f   // sqrt(2)
+#endif
 #define M_PIf       3.14159265358979323846f
 
 void init_params(vqf_params_t *const params)
