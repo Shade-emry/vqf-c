@@ -350,11 +350,11 @@ static bool matrix3Inv(const vqf_real_t in[9], vqf_real_t out[9])
 
 
 
-void updateGyr(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, const vqf_real_t gyr[3])
+static void updateGyr_internal(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, vqf_real_t Ts, const vqf_real_t gyr[3])
 {
     // rest detection
     if (params->restBiasEstEnabled || params->magDistRejectionEnabled) {
-        filterVec(gyr, 3, params->restFilterTau, coeffs->gyrTs, coeffs->restGyrLpB, coeffs->restGyrLpA,
+        filterVec(gyr, 3, params->restFilterTau, Ts, coeffs->restGyrLpB, coeffs->restGyrLpA,
                   state->restGyrLpState, state->restLastGyrLp);
 
         state->restLastSquaredDeviations[0] = vqf_square(gyr[0] - state->restLastGyrLp[0])
@@ -362,7 +362,6 @@ void updateGyr(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
         vqf_real_t biasClip = params->biasClip*(vqf_real_t)(M_PIf/180.0f);
         if (state->restLastSquaredDeviations[0] >= vqf_square(params->restThGyr*(vqf_real_t)(M_PIf/180.0f))
-                // fabs can be replaced by arm_abs_f32 from CMSIS-DSP
                 || fabsf(state->restLastGyrLp[0]) > biasClip || fabsf(state->restLastGyrLp[1]) > biasClip
                 || fabsf(state->restLastGyrLp[2]) > biasClip) {
             state->restT = 0.0;
@@ -375,9 +374,8 @@ void updateGyr(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
     // gyroscope prediction step
     vqf_real_t gyrNorm = norm(gyrNoBias, 3);
-    vqf_real_t angle = gyrNorm * coeffs->gyrTs;
+    vqf_real_t angle = gyrNorm * Ts;
     if (gyrNorm > EPS) {
-        // sin cos can be replaced by arm_sin_f32 and arm_cos_f32 from CMSIS-DSP
         vqf_real_t c = cosf(angle/2);
         vqf_real_t s = sinf(angle/2)/gyrNorm;
         vqf_real_t gyrStepQuat[4] = {c, s*gyrNoBias[0], s*gyrNoBias[1], s*gyrNoBias[2]};
@@ -386,7 +384,30 @@ void updateGyr(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
     }
 }
 
-void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, const vqf_real_t acc[3])
+void updateGyr(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, const vqf_real_t gyr[3])
+{
+    updateGyr_internal(params, state, coeffs, coeffs->gyrTs, gyr);
+}
+
+void updateGyrTs(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs,
+                 const vqf_real_t gyr[3], uint64_t timestamp_us)
+{
+    vqf_real_t dt = coeffs->gyrTs; // fallback
+    if (state->lastGyrTsUs != 0 && timestamp_us > state->lastGyrTsUs) {
+        uint64_t diff = timestamp_us - state->lastGyrTsUs;
+        if (diff > 0 && diff <= 10000000ULL) { // sanity: <= 10 s
+            dt = (vqf_real_t)diff / 1e6f;
+        }
+    }
+
+    updateGyr_internal(params, state, coeffs, dt, gyr);
+
+    if (timestamp_us > state->lastGyrTsUs || state->lastGyrTsUs == 0) {
+        state->lastGyrTsUs = timestamp_us;
+    }
+}
+
+static void updateAcc_internal(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, vqf_real_t Ts, const vqf_real_t acc[3])
 {
     // ignore [0 0 0] samples
     if (acc[0] == (vqf_real_t)(0.0) && acc[1] == (vqf_real_t)(0.0) && acc[2] == (vqf_real_t)(0.0)) {
@@ -395,7 +416,7 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
     // rest detection
     if (params->restBiasEstEnabled) {
-        filterVec(acc, 3, params->restFilterTau, coeffs->accTs, coeffs->restAccLpB, coeffs->restAccLpA,
+        filterVec(acc, 3, params->restFilterTau, Ts, coeffs->restAccLpB, coeffs->restAccLpA,
                   state->restAccLpState, state->restLastAccLp);
 
         state->restLastSquaredDeviations[1] = vqf_square(acc[0] - state->restLastAccLp[0])
@@ -405,7 +426,7 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
             state->restT = 0.0;
             state->restDetected = false;
         } else {
-            state->restT += coeffs->accTs;
+            state->restT += Ts;
             if (state->restT >= params->restMinT) {
                 state->restDetected = true;
             }
@@ -416,7 +437,7 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
     // filter acc in inertial frame
     quatRotate(state->gyrQuat, acc, accEarth);
-    filterVec(accEarth, 3, params->tauAcc, coeffs->accTs, coeffs->accLpB, coeffs->accLpA, state->accLpState, state->lastAccLp);
+    filterVec(accEarth, 3, params->tauAcc, Ts, coeffs->accLpB, coeffs->accLpA, state->accLpState, state->lastAccLp);
 
     // transform to 6D earth frame and normalize
     quatRotate(state->accQuat, state->lastAccLp, accEarth);
@@ -443,7 +464,7 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
 
     // calculate correction angular rate to facilitate debugging
     // acos can be replaced by 2*arctan( sqrt(1-x*x) / x )
-    state->lastAccCorrAngularRate = acosf(accEarth[2])/coeffs->accTs;
+    state->lastAccCorrAngularRate = acosf(accEarth[2])/Ts;
 
     // bias estimation
     if (params->motionBiasEstEnabled || params->restBiasEstEnabled) {
@@ -470,8 +491,8 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
         biasLp[1] = R[3]*state->bias[0] + R[4]*state->bias[1] + R[5]*state->bias[2];
 
         // low-pass filter R and R*b_hat
-        filterVec(R, 9, params->tauAcc, coeffs->accTs, coeffs->accLpB, coeffs->accLpA, state->motionBiasEstRLpState, R);
-        filterVec(biasLp, 2, params->tauAcc, coeffs->accTs, coeffs->accLpB, coeffs->accLpA, state->motionBiasEstBiasLpState,
+        filterVec(R, 9, params->tauAcc, Ts, coeffs->accLpB, coeffs->accLpA, state->motionBiasEstRLpState, R);
+        filterVec(biasLp, 2, params->tauAcc, Ts, coeffs->accLpB, coeffs->accLpA, state->motionBiasEstBiasLpState,
                   biasLp);
 
         // set measurement error and covariance for the respective Kalman filter update
@@ -485,8 +506,8 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
             vqf_fill_real(w, 3, coeffs->biasRestW);
             // std::fill(w, w+3, coeffs->biasRestW);
         } else if (params->motionBiasEstEnabled) {
-            e[0] = -accEarth[1]/coeffs->accTs + biasLp[0] - R[0]*state->bias[0] - R[1]*state->bias[1] - R[2]*state->bias[2];
-            e[1] = accEarth[0]/coeffs->accTs + biasLp[1] - R[3]*state->bias[0] - R[4]*state->bias[1] - R[5]*state->bias[2];
+            e[0] = -accEarth[1]/Ts + biasLp[0] - R[0]*state->bias[0] - R[1]*state->bias[1] - R[2]*state->bias[2];
+            e[1] = accEarth[0]/Ts + biasLp[1] - R[3]*state->bias[0] - R[4]*state->bias[1] - R[5]*state->bias[2];
             e[2] = - R[6]*state->bias[0] - R[7]*state->bias[1] - R[8]*state->bias[2];
             w[0] = coeffs->biasMotionW;
             w[1] = coeffs->biasMotionW;
@@ -541,7 +562,29 @@ void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
     }
 }
 
-void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, const vqf_real_t mag[3])
+void updateAcc(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, const vqf_real_t acc[3])
+{
+    updateAcc_internal(params, state, coeffs, coeffs->accTs, acc);
+}
+
+void updateAccTs(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, const vqf_real_t acc[3], uint64_t timestamp_us)
+{
+    vqf_real_t dt = coeffs->accTs; // fallback
+    if (state->lastAccTsUs != 0 && timestamp_us > state->lastAccTsUs) {
+        uint64_t diff = timestamp_us - state->lastAccTsUs;
+        if (diff > 0 && diff <= 10000000ULL) { // sanity: <= 10 s
+            dt = (vqf_real_t)diff / 1e6f;
+        }
+    }
+
+    updateAcc_internal(params, state, coeffs, dt, acc);
+
+    if (timestamp_us > state->lastAccTsUs || state->lastAccTsUs == 0) {
+        state->lastAccTsUs = timestamp_us;
+    }
+}
+
+static void updateMag_internal(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, vqf_real_t Ts, const vqf_real_t mag[3])
 {
     // ignore [0 0 0] samples
     if (mag[0] == (vqf_real_t)(0.0) && mag[1] == (vqf_real_t)(0.0) && mag[2] == (vqf_real_t)(0.0)) {
@@ -561,7 +604,7 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
         state->magNormDip[1] = -asin(magEarth[2]/state->magNormDip[0]);
 
         if (params->magCurrentTau > 0) {
-            filterVec(state->magNormDip, 2, params->magCurrentTau, coeffs->magTs, coeffs->magNormDipLpB,
+            filterVec(state->magNormDip, 2, params->magCurrentTau, Ts, coeffs->magNormDipLpB,
                       coeffs->magNormDipLpA, state->magNormDipLpState, state->magNormDip);
         }
 
@@ -569,7 +612,7 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
         // fabs can be replaced by arm_abs_f32 from CMSIS-DSP
         if (fabsf(state->magNormDip[0] - state->magRefNorm) < params->magNormTh*state->magRefNorm
                 && fabsf(state->magNormDip[1] - state->magRefDip) < params->magDipTh*(vqf_real_t)(M_PIf/180.0f)) {
-            state->magUndisturbedT += coeffs->magTs;
+            state->magUndisturbedT += Ts;
             if (state->magUndisturbedT >= params->magMinUndisturbedTime) {
                 state->magDistDetected = false;
                 state->magRefNorm += coeffs->kMagRef*(state->magNormDip[0] - state->magRefNorm);
@@ -585,7 +628,7 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
         if (fabsf(state->magNormDip[0] - state->magCandidateNorm) < params->magNormTh*state->magCandidateNorm
                 && fabsf(state->magNormDip[1] - state->magCandidateDip) < params->magDipTh*(vqf_real_t)(M_PIf/180.0f)) {
             if (norm(state->restLastGyrLp, 3) >= params->magNewMinGyr*M_PIf/180.0f) {
-                state->magCandidateT += coeffs->magTs;
+                state->magCandidateT += Ts;
             }
             state->magCandidateNorm += coeffs->kMagRef*(state->magNormDip[0] - state->magCandidateNorm);
             state->magCandidateDip += coeffs->kMagRef*(state->magNormDip[1] - state->magCandidateDip);
@@ -620,13 +663,13 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
         // magnetic disturbance rejection
         if (state->magDistDetected) {
             if (state->magRejectT <= params->magMaxRejectionTime) {
-                state->magRejectT += coeffs->magTs;
+                state->magRejectT += Ts;
                 k = 0;
             } else {
                 k /= params->magRejectionFactor;
             }
         } else {
-            state->magRejectT = vqf_max(state->magRejectT - params->magRejectionFactor*coeffs->magTs, (vqf_real_t)(0.0));
+            state->magRejectT = vqf_max(state->magRejectT - params->magRejectionFactor*Ts, (vqf_real_t)(0.0));
         }
     }
 
@@ -641,7 +684,7 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
         state->kMagInit = state->kMagInit/(state->kMagInit+1);
 
         // disable if t > tauMag
-        if (state->kMagInit*params->tauMag < coeffs->magTs) {
+        if (state->kMagInit*params->tauMag < Ts) {
             state->kMagInit = 0.0;
         }
     }
@@ -649,13 +692,36 @@ void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_
     // first-order filter step
     state->delta += k*state->lastMagDisAngle;
     // calculate correction angular rate to facilitate debugging
-    state->lastMagCorrAngularRate = k*state->lastMagDisAngle/coeffs->magTs;
+    state->lastMagCorrAngularRate = k*state->lastMagDisAngle/Ts;
 
     // make sure delta is in the range [-pi, pi]
     if (state->delta > (vqf_real_t)(M_PIf)) {
         state->delta -= (vqf_real_t)(2*M_PIf);
     } else if (state->delta < (vqf_real_t)(-M_PIf)) {
         state->delta += (vqf_real_t)(2*M_PIf);
+    }
+}
+
+void updateMag(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs, const vqf_real_t mag[3])
+{
+    updateMag_internal(params, state, coeffs, coeffs->magTs, mag);
+}
+
+void updateMagTs(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs,
+                 const vqf_real_t mag[3], uint64_t timestamp_us)
+{
+    vqf_real_t dt = coeffs->magTs; // fallback
+    if (state->lastMagTsUs != 0 && timestamp_us > state->lastMagTsUs) {
+        uint64_t diff = timestamp_us - state->lastMagTsUs;
+        if (diff > 0 && diff <= 10000000ULL) { // sanity: <= 10 s
+            dt = (vqf_real_t)diff / 1e6f;
+        }
+    }
+
+    updateMag_internal(params, state, coeffs, dt, mag);
+
+    if (timestamp_us > state->lastMagTsUs || state->lastMagTsUs == 0) {
+        state->lastMagTsUs = timestamp_us;
     }
 }
 
@@ -941,6 +1007,11 @@ void resetState(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs
     // std::fill(state->magNormDip, state->magNormDip + 2, 0);
     vqf_fill_double(state->magNormDipLpState, 2*2, NaN);
     // std::fill(state->magNormDipLpState, state->magNormDipLpState + 2*2, NaN);
+
+    /* Initialize per-sensor timestamp fields (microseconds). 0 means unknown */
+    state->lastGyrTsUs = 0;
+    state->lastAccTsUs = 0;
+    state->lastMagTsUs = 0;
 }
 
 void setup(vqf_params_t *const params, vqf_state_t *const state, vqf_coeffs_t *const coeffs)
