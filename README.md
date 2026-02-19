@@ -44,9 +44,29 @@ int main() {
     return 0;
 }
 ```
-## TODO
+## CMSIS‑DSP integration (Cortex‑M4 / nRF52)
 
-- Integrate CMSIS-DSP library functions for mathematics and filtering to replace current implementations, aiming to achieve better runtime performance.
+This repository now includes optional CMSIS‑DSP acceleration for Cortex‑M4 targets (useful for nRF52 series).
+
+- Replaced hot‑path math/quaternion/vector operations with CMSIS‑DSP calls when compiled with `-DUSE_CMSIS_DSP`.
+- Added a `Makefile` target to build for Cortex‑M4F and a small benchmark (`bench/bench_cmsis.c`).
+
+Quick build (nRF52840 / Cortex‑M4F with FPU):
+
+1. Install arm-none-eabi toolchain and have a CMSIS‑DSP library available (Nordic SDK includes it).
+2. Run:
+
+   make cortex-m4 CMSIS_PATH=/path/to/CMSIS
+
+Notes:
+- The code chooses the CMSIS‑DSP accelerated paths only when `USE_CMSIS_DSP` is defined (Makefile passes that flag for the ARM build).
+- If your target doesn't have an FPU (e.g. nRF52832), compile without `-mfpu`/`-mfloat-abi=hard` and prefer the fixed‑point CMSIS APIs (future work).
+
+Benchmarking:
+- Host:  make bench
+- ARM:   make bench-arm CMSIS_PATH=/path/to/CMSIS
+
+
 
 ## License
 VQF-C is open source and available under the [MIT License](https://opensource.org/license/mit). This means that you can use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software. The full terms of the license are detailed in the [LICENSE](/LICENSE) file.

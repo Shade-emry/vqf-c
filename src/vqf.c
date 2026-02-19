@@ -5,6 +5,9 @@
 #include <math.h>
 #include <stdbool.h>
 #include "vqf.h"
+#ifdef USE_CMSIS_DSP
+#include "arm_math.h"
+#endif
 #include <string.h>
 
 #define EPS FLT_EPSILON
@@ -68,12 +71,19 @@ static float vqf_min(float a, float b) {
 
 static vqf_real_t norm(const vqf_real_t vec[], size_t N)
 {
+#ifdef USE_CMSIS_DSP
+    float dot;
+    arm_dot_prod_f32(vec, vec, N, &dot);
+    float out;
+    arm_sqrt_f32(dot, &out);
+    return out;
+#else
     vqf_real_t s = 0;
     for(size_t i = 0; i < N; i++) {
         s += vec[i]*vec[i];
     }
-    // sqrt can be replaced by arm_sqrt_f32 from CMSIS_DSP
-    return sqrt(s);
+    return sqrtf(s);
+#endif
 }
 
 static void normalize(vqf_real_t vec[], size_t N)
@@ -82,9 +92,13 @@ static void normalize(vqf_real_t vec[], size_t N)
     if (n < EPS) {
         return;
     }
+#ifdef USE_CMSIS_DSP
+    arm_scale_f32(vec, 1.0f / n, vec, N);
+#else
     for(size_t i = 0; i < N; i++) {
         vec[i] /= n;
     }
+#endif
 }
 
 static void clip(vqf_real_t vec[], size_t N, vqf_real_t min, vqf_real_t max)
@@ -102,11 +116,15 @@ static void clip(vqf_real_t vec[], size_t N, vqf_real_t min, vqf_real_t max)
 // this func can be replaced by arm_quaternion_product_f32 from CMSIS-DSP
 static void quatMultiply(const vqf_real_t q1[4], const vqf_real_t q2[4], vqf_real_t out[4])
 {
+#ifdef USE_CMSIS_DSP
+    arm_quaternion_product_f32((float *)q1, (float *)q2, out);
+#else
     vqf_real_t w = q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2] - q1[3] * q2[3];
     vqf_real_t x = q1[0] * q2[1] + q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2];
     vqf_real_t y = q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1];
     vqf_real_t z = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0];
     out[0] = w; out[1] = x; out[2] = y; out[3] = z;
+#endif
 }
 
 /*
@@ -132,9 +150,13 @@ static void quatSetToIdentity(vqf_real_t out[4])
 static void quatApplyDelta(vqf_real_t q[4], vqf_real_t delta, vqf_real_t out[4])
 {
     // out = quatMultiply([cos(delta/2), 0, 0, sin(delta/2)], q)
-    // sin and cos can be replaced by arm_sin_f32 and arm_cos_f32 from CMSIS-DSP
+#ifdef USE_CMSIS_DSP
+    vqf_real_t s, c;
+    arm_sin_cos_f32(delta/2.0f, &s, &c); // sin then cos
+#else
     vqf_real_t c = cosf(delta/2);
     vqf_real_t s = sinf(delta/2);
+#endif
     vqf_real_t w = c * q[0] - s * q[3];
     vqf_real_t x = c * q[1] - s * q[2];
     vqf_real_t y = c * q[2] + s * q[1];
