@@ -66,7 +66,7 @@ Benchmarking:
 - Host:  make bench
 - ARM:   make bench-arm CMSIS_PATH=/path/to/CMSIS
 
-## Timestamped (per-sample) updates — why and how 💡
+## Timestamped (per-sample) updates — why and how 
 
 Why use timestamps?
 - Real IMU data is often jittery, irregular or has dropped samples. Per‑sample timestamps let the filter compute the true sample interval so orientation integration, rest detection and bias updates stay correct.
