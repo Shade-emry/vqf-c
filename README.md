@@ -1,4 +1,4 @@
-# VQF-C: A Lightweight Implementation of VQF for Embedded Devices
+# VQF-C: A Lightweight Implementation of VQF for Embedded IMU Devices
 
 **VQF-C** is a C language implementation of the full [VQF](https://github.com/dlaidig/vqf), with credit to the original project's author for their pioneering work. This project aims to bring the full capabilities of VQF to embedded devices such as Cortex-M4F and RISC-V MCUs, with minimal overhead.
 
