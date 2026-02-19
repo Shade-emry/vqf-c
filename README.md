@@ -44,7 +44,7 @@ int main() {
     return 0;
 }
 ```
-## CMSIS‑DSP integration (Cortex‑M4 / nRF52)
+## CMSIS‑DSP integration (Cortex‑M4 / nRF52840)
 
 This repository now includes optional CMSIS‑DSP acceleration for Cortex‑M4 targets (useful for nRF52 series).
 
